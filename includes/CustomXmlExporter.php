@@ -2,6 +2,8 @@
 namespace WPO\IPS;
 
 use DOMDocument;
+use WPO\IPS\Documents\BulkDocument;
+use WPO\IPS\Documents\Invoice as InvoiceDocument;
 use WPO\IPS\Documents\OrderDocument;
 use WC_Abstract_Order;
 
@@ -37,6 +39,48 @@ class CustomXmlExporter {
         add_action( 'wpo_wcpdf_pdf_created', array( $this, 'maybe_export_invoice_xml' ), 10, 2 );
         add_filter( 'wpo_wcpdf_listing_actions', array( $this, 'add_invoice_xml_listing_action' ), 10, 2 );
         add_action( 'wp_ajax_wpo_wcpdf_download_invoice_xml', array( $this, 'handle_invoice_xml_download' ) );
+        add_filter( 'wpo_wcpdf_document_output_formats', array( $this, 'register_invoice_xml_output_format' ), 10, 2 );
+        add_filter( 'wpo_wcpdf_bulk_actions', array( $this, 'register_invoice_xml_bulk_action' ) );
+        add_filter( 'option_wpo_wcpdf_documents_settings_invoice_xml', array( $this, 'ensure_invoice_xml_document_setting' ) );
+    }
+
+    /**
+     * Make sure the invoice document exposes XML as an output format.
+     */
+    public function register_invoice_xml_output_format( array $formats, $document ): array {
+        if ( $document instanceof InvoiceDocument || ( $document instanceof BulkDocument && 'invoice' === $document->get_type() ) ) {
+            if ( ! in_array( 'xml', $formats, true ) ) {
+                $formats[] = 'xml';
+            }
+        }
+
+        return $formats;
+    }
+
+    /**
+     * Add the XML bulk action to the order table.
+     */
+    public function register_invoice_xml_bulk_action( array $actions ): array {
+        if ( ! isset( $actions['invoice_xml'] ) ) {
+            $actions['invoice_xml'] = __( 'XML Invoice', 'woocommerce-pdf-invoices-packing-slips' );
+        }
+
+        return $actions;
+    }
+
+    /**
+     * Ensure the XML output format is treated as enabled.
+     */
+    public function ensure_invoice_xml_document_setting( $value ) {
+        if ( empty( $value ) || ! is_array( $value ) ) {
+            $value = array();
+        }
+
+        if ( ! isset( $value['enabled'] ) ) {
+            $value['enabled'] = 'yes';
+        }
+
+        return $value;
     }
 
     /**
@@ -164,6 +208,88 @@ class CustomXmlExporter {
         }
 
         $this->stream_invoice_xml( $path );
+    }
+
+    /**
+     * Stream XML output for a document (single or bulk).
+     *
+     * @param OrderDocument|BulkDocument $document
+     * @param array                      $order_ids
+     */
+    public function output_document_xml( $document, array $order_ids = array() ): void {
+        if ( ! $document instanceof OrderDocument && ! $document instanceof BulkDocument ) {
+            return;
+        }
+
+        if ( $document instanceof OrderDocument && 'invoice' !== $document->get_type() ) {
+            return;
+        }
+
+        if ( $document instanceof BulkDocument && 'invoice' !== $document->get_type() ) {
+            return;
+        }
+
+        if ( empty( $order_ids ) ) {
+            if ( $document instanceof BulkDocument ) {
+                $order_ids = (array) $document->order_ids;
+            } elseif ( $document instanceof OrderDocument && $document->order instanceof WC_Abstract_Order ) {
+                $order_ids = array( $document->order->get_id() );
+            }
+        }
+
+        $order_ids = array_values( array_filter( array_map( 'absint', $order_ids ) ) );
+
+        if ( empty( $order_ids ) ) {
+            wp_die( esc_html__( "You haven't selected any orders", 'woocommerce-pdf-invoices-packing-slips' ) );
+        }
+
+        $invoices_data = array();
+
+        foreach ( $order_ids as $order_id ) {
+            $order = wc_get_order( $order_id );
+
+            if ( ! $order instanceof WC_Abstract_Order ) {
+                continue;
+            }
+
+            $invoice_document = $document instanceof OrderDocument && $document->order instanceof WC_Abstract_Order && $document->order->get_id() === $order_id
+                ? $document
+                : wcpdf_get_document( 'invoice', $order );
+
+            if ( ! $invoice_document instanceof OrderDocument ) {
+                continue;
+            }
+
+            if ( ! apply_filters( 'wpo_wcpdf_enable_invoice_xml_export', true, $invoice_document ) ) {
+                continue;
+            }
+
+            $data = $this->prepare_invoice_data( $invoice_document, $order );
+
+            if ( empty( $data ) ) {
+                continue;
+            }
+
+            $invoices_data[] = $data;
+        }
+
+        $invoices_data = apply_filters( 'wpo_wcpdf_invoice_xml_bulk_export_data', $invoices_data, $document, $order_ids );
+
+        if ( empty( $invoices_data ) ) {
+            wp_die( esc_html__( 'No invoice data available for XML export.', 'woocommerce-pdf-invoices-packing-slips' ) );
+        }
+
+        $xml = $this->generate_bulk_xml_contents( $invoices_data );
+        $xml = apply_filters( 'wpo_wcpdf_invoice_xml_bulk_export_xml', $xml, $invoices_data, $document, $order_ids );
+        $xml = $this->normalize_xml_output( $xml );
+
+        if ( empty( $xml ) ) {
+            wp_die( esc_html__( 'The invoice XML file could not be generated.', 'woocommerce-pdf-invoices-packing-slips' ) );
+        }
+
+        $filename = $this->resolve_bulk_filename( $document, $order_ids );
+
+        $this->output_xml_download( $xml, $filename );
     }
 
     /**
@@ -493,32 +619,10 @@ class CustomXmlExporter {
      * Create XML string from data.
      */
     protected function generate_xml_contents( array $data ): string {
-        $dom              = new DOMDocument( '1.0', 'UTF-8' );
-        $dom->formatOutput = true;
-
-        $root = $dom->createElement( 'Pohladavky' );
-        $root->setAttributeNS( 'http://www.w3.org/2000/xmlns/', 'xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance' );
-        $root->setAttributeNS( 'http://www.w3.org/2000/xmlns/', 'xmlns:xsd', 'http://www.w3.org/2001/XMLSchema' );
-        $dom->appendChild( $root );
-
-        $list_node    = $dom->createElement( 'ZoznamPohladavok' );
-        $invoice_node = $dom->createElement( 'Pohladavka' );
-
-        foreach ( $data as $key => $value ) {
-            if ( 'Partner' === $key && is_array( $value ) ) {
-                $partner_node = $dom->createElement( 'Partner' );
-                foreach ( $value as $partner_key => $partner_value ) {
-                    $this->append_node_with_value( $dom, $partner_node, $partner_key, $partner_value );
-                }
-                $invoice_node->appendChild( $partner_node );
-                continue;
-            }
-
-            $this->append_node_with_value( $dom, $invoice_node, $key, $value );
-        }
-
-        $list_node->appendChild( $invoice_node );
-        $root->appendChild( $list_node );
+        $dom       = $this->initialize_dom_document();
+        $list_node = $dom->createElement( 'ZoznamPohladavok' );
+        $list_node->appendChild( $this->build_invoice_node( $dom, $data ) );
+        $dom->documentElement->appendChild( $list_node );
 
         return $dom->saveXML() ?: '';
     }
@@ -559,6 +663,32 @@ class CustomXmlExporter {
         }
 
         return $base . '.xml';
+    }
+
+    /**
+     * Resolve the filename for bulk XML downloads.
+     */
+    protected function resolve_bulk_filename( $document, array $order_ids ): string {
+        $filename = '';
+
+        if ( $document instanceof BulkDocument ) {
+            $filename = $document->get_filename( 'download', array( 'order_ids' => $order_ids ) );
+        } elseif ( $document instanceof OrderDocument ) {
+            $filename = $document->get_filename( 'download', array( 'order_ids' => $order_ids ) );
+        }
+
+        if ( ! is_string( $filename ) || '' === $filename ) {
+            $order_ids = array_values( $order_ids );
+            if ( count( $order_ids ) > 1 ) {
+                $filename = sprintf( 'invoice-%s-%s.xml', reset( $order_ids ), end( $order_ids ) );
+            } else {
+                $filename = sprintf( 'invoice-%s.xml', reset( $order_ids ) );
+            }
+        } else {
+            $filename = preg_replace( '/\.(pdf|ubl|html|xml)$/i', '', $filename ) . '.xml';
+        }
+
+        return sanitize_file_name( $filename );
     }
 
     /**
@@ -680,6 +810,89 @@ class CustomXmlExporter {
             __( 'Order %s', 'woocommerce-pdf-invoices-packing-slips' ),
             $order->get_order_number()
         );
+    }
+
+    /**
+     * Prepare the DOMDocument with the XML declaration and root node.
+     */
+    protected function initialize_dom_document(): DOMDocument {
+        $dom              = new DOMDocument( '1.0', 'UTF-8' );
+        $dom->formatOutput = true;
+
+        $root = $dom->createElement( 'Pohladavky' );
+        $root->setAttributeNS( 'http://www.w3.org/2000/xmlns/', 'xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance' );
+        $root->setAttributeNS( 'http://www.w3.org/2000/xmlns/', 'xmlns:xsd', 'http://www.w3.org/2001/XMLSchema' );
+        $dom->appendChild( $root );
+
+        return $dom;
+    }
+
+    /**
+     * Build a single invoice node.
+     */
+    protected function build_invoice_node( DOMDocument $dom, array $data ): \DOMElement {
+        $invoice_node = $dom->createElement( 'Pohladavka' );
+
+        foreach ( $data as $key => $value ) {
+            if ( 'Partner' === $key && is_array( $value ) ) {
+                $partner_node = $dom->createElement( 'Partner' );
+                foreach ( $value as $partner_key => $partner_value ) {
+                    $this->append_node_with_value( $dom, $partner_node, $partner_key, $partner_value );
+                }
+                $invoice_node->appendChild( $partner_node );
+                continue;
+            }
+
+            $this->append_node_with_value( $dom, $invoice_node, $key, $value );
+        }
+
+        return $invoice_node;
+    }
+
+    /**
+     * Generate XML for multiple invoices.
+     */
+    protected function generate_bulk_xml_contents( array $invoices ): string {
+        $dom       = $this->initialize_dom_document();
+        $list_node = $dom->createElement( 'ZoznamPohladavok' );
+
+        foreach ( $invoices as $invoice_data ) {
+            if ( ! is_array( $invoice_data ) || empty( $invoice_data ) ) {
+                continue;
+            }
+
+            $list_node->appendChild( $this->build_invoice_node( $dom, $invoice_data ) );
+        }
+
+        if ( 0 === $list_node->childNodes->length ) {
+            return '';
+        }
+
+        $dom->documentElement->appendChild( $list_node );
+
+        return $dom->saveXML() ?: '';
+    }
+
+    /**
+     * Output XML string as a download.
+     */
+    protected function output_xml_download( string $xml, string $filename ): void {
+        if ( '' === $filename ) {
+            $filename = 'invoice-export.xml';
+        }
+
+        while ( ob_get_level() > 0 ) {
+            ob_end_clean();
+        }
+
+        @ini_set( 'zlib.output_compression', 'Off' );
+
+        header( 'Content-Type: application/xml; charset=utf-8' );
+        header( sprintf( 'Content-Disposition: attachment; filename="%s"', addcslashes( $filename, "\\\"" ) ) );
+        header( 'Content-Length: ' . strlen( $xml ) );
+
+        echo $xml; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+        exit;
     }
 }
 

@@ -500,14 +500,19 @@ class Main {
 
 				$output_format = WPO_WCPDF()->settings->get_output_format( $document, $request );
 
-				switch ( $output_format ) {
-					case 'ubl':
-						$document->output_ubl();
-						break;
-					case 'html':
-						add_filter( 'wpo_wcpdf_use_path', '__return_false' );
-						$document->output_html();
-						break;
+                                switch ( $output_format ) {
+                                        case 'ubl':
+                                                $document->output_ubl();
+                                                break;
+                                        case 'xml':
+                                                if ( class_exists( '\\WPO\\IPS\\CustomXmlExporter' ) ) {
+                                                        CustomXmlExporter::instance()->output_document_xml( $document, $order_ids );
+                                                }
+                                                break;
+                                        case 'html':
+                                                add_filter( 'wpo_wcpdf_use_path', '__return_false' );
+                                                $document->output_html();
+                                                break;
 					case 'pdf':
 					default:
 						if ( has_action( 'wpo_wcpdf_created_manually' ) ) {
