@@ -302,10 +302,11 @@ function wcpdf_get_document_file( object $document, string $output_format = 'pdf
  * @return string
  */
 function wcpdf_get_document_output_format_extension( string $output_format ): string {
-	$output_formats = array(
-		'pdf' => '.pdf',
-		'ubl' => '.xml',
-	);
+        $output_formats = array(
+                'pdf' => '.pdf',
+                'ubl' => '.xml',
+                'xml' => '.xml',
+        );
 
 	return isset( $output_formats[ $output_format ] ) ? $output_formats[ $output_format ] : $output_formats['pdf'];
 }

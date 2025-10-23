@@ -6,15 +6,19 @@ jQuery( function( $ ) {
 
 		if ( $.inArray( action, wpo_wcpdf_ajax.bulk_actions ) !== -1 ) {
 			e.preventDefault();
-			let template   = action;
-			let checked    = [];
-			let ubl_output = false;
+                let template   = action;
+                let checked    = [];
+                let ubl_output = false;
+                let xml_output = false;
 
-			// is UBL action
-			if ( action.indexOf( 'ubl' ) != -1 ) {
-				template   = template.replace( '_ubl', '' );
-				ubl_output = true;
-			}
+                // is UBL action
+                if ( action.indexOf( 'ubl' ) != -1 ) {
+                        template   = template.replace( '_ubl', '' );
+                        ubl_output = true;
+                } else if ( action.indexOf( '_xml' ) !== -1 ) {
+                        template   = template.replace( '_xml', '' );
+                        xml_output = true;
+                }
 
 			$( 'tbody th.check-column input[type="checkbox"]:checked' ).each(
 				function() {
@@ -43,15 +47,18 @@ jQuery( function( $ ) {
 					window.open( full_url, '_blank' );
 				} );
 
-			// pdf
-			} else {
-				let order_ids = checked.join( 'x' );
-				full_url      = partial_url + '&order_ids='+order_ids;
-				window.open( full_url, '_blank' );
-			}
+                        // pdf & xml
+                        } else {
+                                let order_ids = checked.join( 'x' );
+                                full_url      = partial_url + '&order_ids='+order_ids;
+                                if ( xml_output ) {
+                                        full_url += '&output=xml';
+                                }
+                                window.open( full_url, '_blank' );
+                        }
 
-		}
-	} );
+                }
+        } );
 
 	if ( wpo_wcpdf_ajax.sticky_document_data_metabox ) {
 		$( '#wpo_wcpdf-data-input-box' ).insertAfter('#woocommerce-order-data');

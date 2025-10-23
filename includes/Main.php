@@ -495,19 +495,40 @@ class Main {
 			// get document
 			$document = wcpdf_get_document( $document_type, $order_ids, true );
 
-			if ( $document ) {
-				do_action( 'wpo_wcpdf_document_created_manually', $document, $order_ids ); // note that $order_ids is filtered and may not be the same as the order IDs used for the document (which can be fetched from the document object itself with $document->order_ids)
+                        if ( $document ) {
+                                if ( isset( $request['output'] ) && 'xml' === $request['output'] ) {
+                                        if ( isset( $document->output_formats ) && is_array( $document->output_formats ) ) {
+                                                $supports_xml = false;
 
-				$output_format = WPO_WCPDF()->settings->get_output_format( $document, $request );
+                                                if ( method_exists( $document, 'get_type' ) && 'invoice' === $document->get_type() ) {
+                                                        $supports_xml = true;
+                                                } elseif ( isset( $document->type ) && 'invoice' === $document->type ) {
+                                                        $supports_xml = true;
+                                                }
 
-				switch ( $output_format ) {
-					case 'ubl':
-						$document->output_ubl();
-						break;
-					case 'html':
-						add_filter( 'wpo_wcpdf_use_path', '__return_false' );
-						$document->output_html();
-						break;
+                                                if ( $supports_xml && ! in_array( 'xml', $document->output_formats, true ) ) {
+                                                        $document->output_formats[] = 'xml';
+                                                }
+                                        }
+                                }
+
+                                do_action( 'wpo_wcpdf_document_created_manually', $document, $order_ids ); // note that $order_ids is filtered and may not be the same as the order IDs used for the document (which can be fetched from the document object itself with $document->order_ids)
+
+                                $output_format = WPO_WCPDF()->settings->get_output_format( $document, $request );
+
+                                switch ( $output_format ) {
+                                        case 'ubl':
+                                                $document->output_ubl();
+                                                break;
+                                        case 'xml':
+                                                if ( class_exists( '\\WPO\\IPS\\CustomXmlExporter' ) ) {
+                                                        CustomXmlExporter::instance()->output_document_xml( $document, $order_ids );
+                                                }
+                                                break;
+                                        case 'html':
+                                                add_filter( 'wpo_wcpdf_use_path', '__return_false' );
+                                                $document->output_html();
+                                                break;
 					case 'pdf':
 					default:
 						if ( has_action( 'wpo_wcpdf_created_manually' ) ) {
