@@ -1,0 +1,9 @@
+<svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Document outline -->
+  <rect x="4" y="1" width="16" height="20" rx="2" stroke="#6C45A6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="white"></rect>
+  <!-- Header strip -->
+  <path d="M0 4C0 3.4477 0.4477 3 1 3H7.5C8.0523 3 8.5 3.4477 8.5 4V6.5C8.5 7.0523 8.0523 7.5 7.5 7.5H1C0.4477 7.5 0 7.0523 0 6.5V4Z" fill="#00A878"></path>
+  <!-- Minus symbol inside circle -->
+  <circle cx="12" cy="13" r="3.5" stroke="#6C45A6" stroke-width="1.5" fill="none"></circle>
+  <line x1="9.5" y1="13" x2="14.5" y2="13" stroke="#6C45A6" stroke-width="1.5" stroke-linecap="round"></line>
+</svg>
