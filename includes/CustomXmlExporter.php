@@ -42,6 +42,7 @@ class CustomXmlExporter {
         add_filter( 'wpo_wcpdf_document_output_formats', array( $this, 'register_invoice_xml_output_format' ), 10, 2 );
         add_filter( 'wpo_wcpdf_bulk_actions', array( $this, 'register_invoice_xml_bulk_action' ) );
         add_filter( 'option_wpo_wcpdf_documents_settings_invoice_xml', array( $this, 'ensure_invoice_xml_document_setting' ) );
+        add_filter( 'default_option_wpo_wcpdf_documents_settings_invoice_xml', array( $this, 'default_invoice_xml_document_setting' ) );
     }
 
     /**
@@ -81,6 +82,17 @@ class CustomXmlExporter {
         }
 
         return $value;
+    }
+
+    /**
+     * Provide default option values when the XML document settings have not been saved yet.
+     */
+    public function default_invoice_xml_document_setting( $default ) {
+        if ( empty( $default ) || ! is_array( $default ) ) {
+            $default = array();
+        }
+
+        return $this->ensure_invoice_xml_document_setting( $default );
     }
 
     /**
