@@ -136,6 +136,12 @@ class BulkDocument {
 
 		// get wrapper document & insert body content
 		$this->wrapper_document = wcpdf_get_document( $this->get_type(), null );
+
+		if ( ! $this->wrapper_document || ! is_object( $this->wrapper_document ) || ! method_exists( $this->wrapper_document, 'wrap_html_content' ) ) {
+			$this->remove_filters( $html_filters );
+			throw new \RuntimeException( sprintf( "Document type '%s' is not available.", $this->get_type() ) );
+		}
+
 		$html = $this->wrapper_document->wrap_html_content( $this->merge_documents( $html_content ) );
 
 		// clean up special characters

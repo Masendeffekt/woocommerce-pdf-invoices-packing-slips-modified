@@ -383,6 +383,7 @@ class Main {
 		}
 
 		$document_type = sanitize_text_field( $request['document_type'] );
+		$document_type = $this->normalize_document_type_slug( $document_type );
 		$order_ids     = isset( $request['order_ids'] ) ? array_map( 'absint', explode( 'x', sanitize_text_field( $request['order_ids'] ) ) ) : array();
 		$order         = false;
 
@@ -564,6 +565,53 @@ class Main {
 			wcpdf_output_error( $message, 'critical', $e );
 		}
 		exit;
+	}
+
+	/**
+	 * Normalize document type slugs coming from requests.
+	 *
+	 * Some browsers or translations may send suffixed slugs such as
+	 * `invoice_xml`. When we detect a suffix we map it back to a known
+	 * document type to avoid lookups failing downstream.
+	 *
+	 * @param string $slug
+	 *
+	 * @return string
+	 */
+	private function normalize_document_type_slug( $slug ) {
+		$slug       = sanitize_key( $slug );
+		$documents  = WPO_WCPDF()->documents->get_documents( 'all' );
+		$known_slug = array();
+
+		foreach ( $documents as $document ) {
+			if ( is_object( $document ) && method_exists( $document, 'get_type' ) ) {
+				$known_slug[] = $document->get_type();
+			}
+		}
+
+		if ( in_array( $slug, $known_slug, true ) ) {
+			return $slug;
+		}
+
+		$suffixes = apply_filters( 'wpo_wcpdf_document_type_suffixes', array( '_xml', '_ubl', '_pdf' ) );
+
+		foreach ( $suffixes as $suffix ) {
+			if ( empty( $suffix ) ) {
+				continue;
+			}
+
+			$suffix_length = strlen( $suffix );
+
+			if ( $suffix_length > 0 && substr( $slug, - $suffix_length ) === $suffix ) {
+				$candidate = substr( $slug, 0, - $suffix_length );
+
+				if ( in_array( $candidate, $known_slug, true ) ) {
+					return $candidate;
+				}
+			}
+		}
+
+		return $slug;
 	}
 
 	/**
